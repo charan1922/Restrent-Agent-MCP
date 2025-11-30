@@ -170,3 +170,146 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+/**
+ * PATCH /api/orders
+ * Modify an existing order
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { orderId, items, status } = body;
+
+    if (!orderId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Missing orderId",
+        },
+        { status: 400 }
+      );
+    }
+
+    const db = getRestaurantDB();
+    const order = db.getOrder(orderId);
+
+    if (!order) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Order not found",
+        },
+        { status: 404 }
+      );
+    }
+
+    // Update order
+    const updates: any = {};
+    
+    if (status) {
+      updates.status = status;
+    }
+
+    if (items) {
+      const menuKB = getMenuKB();
+      let total = 0;
+      for (const item of items) {
+        const menuItem = menuKB.getItemById(item.itemId);
+        if (!menuItem) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `Invalid item ID: ${item.itemId}`,
+            },
+            { status: 400 }
+          );
+        }
+        total += menuItem.price * item.quantity;
+      }
+      updates.items = items;
+      updates.total = total;
+    }
+
+    const updatedOrder = db.updateOrder(orderId, updates);
+
+    return NextResponse.json({
+      success: true,
+      order: updatedOrder,
+      message: "Order updated successfully",
+    });
+  } catch (error) {
+    console.error("Error updating order:", error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Failed to update order",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE /api/orders
+ * Cancel an order and notify Chef Agent
+ */
+export async function DELETE(request: NextRequest) {
+  try {
+    const searchParams = request.nextUrl.searchParams;
+    const orderId = searchParams.get("orderId");
+
+    if (!orderId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Missing orderId",
+        },
+        { status: 400 }
+      );
+    }
+
+    const db = getRestaurantDB();
+    const order = db.getOrder(orderId);
+
+    if (!order) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Order not found",
+        },
+        { status: 404 }
+      );
+    }
+
+    // Try to notify Chef Agent about cancellation
+    if (order.chefOrderId) {
+      try {
+        const chefClient = getChefAgentClient();
+        await chefClient.cancelOrder(order.chefOrderId);
+        console.log(`✅ Chef Agent notified about order cancellation: ${order.chefOrderId}`);
+      } catch (chefError) {
+        console.warn("⚠️ Could not notify Chef Agent about cancellation:", chefError);
+        // Continue with cancellation even if Chef notification fails
+      }
+    }
+
+    // Update order status to cancelled
+    db.updateOrder(orderId, { status: "cancelled" });
+
+    return NextResponse.json({
+      success: true,
+      message: "Order cancelled successfully",
+      orderId,
+    });
+  } catch (error) {
+    console.error("Error cancelling order:", error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Failed to cancel order",
+      },
+      { status: 500 }
+    );
+  }
+}
+

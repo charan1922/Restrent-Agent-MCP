@@ -46,11 +46,13 @@ Your role is to provide exceptional customer service, handle all front-of-house 
 - Offer alternative times if requested slot is unavailable
 
 🔧 ORDER WORKFLOW:
-1. Confirm table (number) preference before placing orders else suggest a table
-2. Verify all items and quantities with the guest
-3. Use placeOrder tool to send to Chef Agent (running on port 5000)
-4. Inform guest of the estimated time of arrival (ETA) from Chef
-5. If Chef Agent is unavailable, apologize and note order will be processed manually
+1. **CRITICAL**: Always use queryMenu FIRST to get item IDs before placing any order
+2. Confirm table (number) preference before placing orders else suggest a table
+3. Verify all items and quantities with the guest
+4. Use the 'id' field from queryMenu results as itemId in placeOrder
+5. Use placeOrder tool to send to Chef Agent (running on port 5000)
+6. Inform guest of the estimated time of arrival (ETA) from Chef
+7. If Chef Agent is unavailable, apologize and note order will be processed manually
 
 📊 ORDER STATUS TRACKING:
 - Use requestOrderStatus to check on orders
@@ -87,7 +89,7 @@ Remember: You represent the restaurant's hospitality. Every interaction should l
       messages: convertToModelMessages(messages),
       tools: {
         queryMenu: tool({
-          description: "Search and retrieve menu items with prices, ingredients, and dietary information. Use this to answer questions about the menu, prices, ingredients, or dietary options.",
+          description: "Search and retrieve menu items with prices, ingredients, and dietary information. Use this to answer questions about the menu, prices, ingredients, or dietary options. IMPORTANT: Always use this tool before placing orders to get the correct item IDs.",
           inputSchema: z.object({
             search: z.string().optional().describe("Search term for menu items"),
             category: z.enum(["appetizers", "mains", "breads", "beverages", "desserts"]).optional().describe("Filter by category"),
@@ -106,13 +108,16 @@ Remember: You represent the restaurant's hospitality. Every interaction should l
 
             return {
               items: data.items?.map((item: any) => ({
+                id: item.id, // ← CRITICAL: Item ID needed for orders
                 name: item.name,
                 price: `₹${item.price}`,
+                priceNumeric: item.price, // For calculations
                 description: item.description,
                 category: item.category,
                 isVegetarian: item.isVegetarian,
                 isVegan: item.isVegan,
                 allergens: item.allergens || [],
+                spiceLevel: item.spiceLevel,
               })) || [],
             };
           },
@@ -188,11 +193,11 @@ Remember: You represent the restaurant's hospitality. Every interaction should l
         }),
 
         placeOrder: tool({
-          description: "Place a new order for a table. This sends the order to the kitchen. Always confirm items and quantities with the guest before placing the order.",
+          description: "Place a new order for a table. This sends the order to the kitchen. IMPORTANT: You MUST first use queryMenu to get the item IDs before placing an order. Use the 'id' field from queryMenu results as the itemId here. Always confirm items and quantities with the guest before placing the order.",
           inputSchema: z.object({
             tableId: z.string().describe("Table ID (e.g., T1, T2, T3)"),
             items: z.array(z.object({
-              itemId: z.string().describe("Menu item ID"),
+              itemId: z.string().describe("Menu item ID from queryMenu results (e.g., 'main-001', 'bread-001')"),
               quantity: z.number().describe("Quantity"),
               modifications: z.array(z.string()).optional().describe("Modifications like 'no onions', 'extra spicy'"),
               specialInstructions: z.string().optional().describe("Special cooking instructions"),
@@ -280,7 +285,12 @@ Remember: You represent the restaurant's hospitality. Every interaction should l
       },
     });
 
-    return result.toUIMessageStreamResponse();
+    return result.toUIMessageStreamResponse({
+      headers: {
+      'Transfer-Encoding': 'chunked',
+      'Connection': 'keep-alive',
+    }
+    });
   } catch (error) {
     console.error("Error in chat route:", error);
     return new Response(JSON.stringify({ error: "Internal Server Error" }), {

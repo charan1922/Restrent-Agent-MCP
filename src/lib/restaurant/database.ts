@@ -35,7 +35,7 @@ export interface Order {
     specialInstructions?: string;
   }>;
   total: number;
-  status: "pending" | "sent_to_chef" | "preparing" | "ready" | "served" | "paid";
+  status: "pending" | "sent_to_chef" | "preparing" | "ready" | "served" | "paid" | "cancelled";
   chefOrderId?: string; // ID from Chef Agent
   timestamp: Date;
   eta?: number; // ETA in minutes from Chef
