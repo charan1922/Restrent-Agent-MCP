@@ -62,7 +62,7 @@ export function Sidebar() {
                 <div className="h-16 flex items-center justify-between px-4 border-b">
                     {!collapsed && (
                         <div className="flex items-center gap-2">
-                            <UtensilsCrossed className="w-6 h-6 text-orange-600" />
+                            <UtensilsCrossed className="w-6 h-6 text-[var(--color-primary)]" />
                             <span className="font-semibold text-lg">Restaurant</span>
                         </div>
                     )}
@@ -92,7 +92,7 @@ export function Sidebar() {
                                 className={cn(
                                     "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors",
                                     isActive
-                                        ? "bg-orange-50 text-orange-600 font-medium"
+                                        ? "bg-orange-50 text-[var(--color-primary)] font-medium"
                                         : "text-gray-700 hover:bg-gray-50",
                                     collapsed && "justify-center"
                                 )}
@@ -131,7 +131,7 @@ export function Sidebar() {
                 {/* Same content as desktop sidebar */}
                 <div className="h-16 flex items-center justify-between px-4 border-b">
                     <div className="flex items-center gap-2">
-                        <UtensilsCrossed className="w-6 h-6 text-orange-600" />
+                        <UtensilsCrossed className="w-6 h-6 text-[var(--color-primary)]" />
                         <span className="font-semibold text-lg">Restaurant</span>
                     </div>
                     <button
@@ -155,7 +155,7 @@ export function Sidebar() {
                                 className={cn(
                                     "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors",
                                     isActive
-                                        ? "bg-orange-50 text-orange-600 font-medium"
+                                        ? "bg-orange-50 text-[var(--color-primary)] font-medium"
                                         : "text-gray-700 hover:bg-gray-50"
                                 )}
                             >

@@ -137,7 +137,11 @@ export async function validateSession(token: string): Promise<User | null> {
 
     return userResult.rows[0];
   } catch (error) {
-    console.error("Session validation error:", error);
+    // Silently reject invalid tokens (expected for cross-tenant access)
+    // Only log unexpected errors
+    if (error instanceof Error && !error.message.includes('jwt')) {
+      console.error("Session validation error:", error);
+    }
     return null;
   }
 }
@@ -147,7 +151,7 @@ export async function logoutUser(token: string): Promise<boolean> {
     const result = await query(`DELETE FROM sessions WHERE token = $1`, [
       token,
     ]);
-    return result.rowCount > 0;
+    return (result.rowCount ?? 0) > 0;
   } catch (error) {
     console.error("Logout error:", error);
     return false;

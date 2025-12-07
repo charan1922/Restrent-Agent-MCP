@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logoutUser } from "@/lib/repository/auth";
+import { getCurrentTenantCookieName } from "@/lib/utils/auth-cookies";
 
 export async function POST(request: NextRequest) {
   try {
-    const token = request.cookies.get("auth_token")?.value;
+    const cookieName = getCurrentTenantCookieName();
+    const token = request.cookies.get(cookieName)?.value;
 
     if (token) {
       await logoutUser(token);
@@ -14,8 +16,8 @@ export async function POST(request: NextRequest) {
       message: "Logged out successfully",
     });
 
-    // Clear cookie
-    response.cookies.delete("auth_token");
+    // Clear tenant-specific cookie
+    response.cookies.delete(cookieName);
 
     return response;
   } catch (error) {

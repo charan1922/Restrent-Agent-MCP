@@ -9,53 +9,174 @@ import { query } from "../db/postgres";
 // MENU
 // ============================================================================
 
-export async function getAllMenuItems() {
+export async function getAllMenuItems(tenantId: string) {
   const result = await query(
-    "SELECT * FROM menu_items WHERE is_available = TRUE ORDER BY category, name"
+    "SELECT * FROM menu_items WHERE tenant_id = $1 AND is_available = TRUE ORDER BY category, name",
+    [tenantId]
   );
   return result.rows;
 }
 
-export async function getMenuItemById(id: string) {
-  const result = await query("SELECT * FROM menu_items WHERE id = $1", [id]);
+export async function getMenuItemById(tenantId: string, id: string) {
+  const result = await query("SELECT * FROM menu_items WHERE tenant_id = $1 AND id = $2", [tenantId, id]);
   return result.rows[0];
 }
 
-export async function searchMenuByName(searchTerm: string) {
+export async function searchMenuByName(tenantId: string, searchTerm: string) {
   const result = await query(
-    "SELECT * FROM menu_items WHERE LOWER(name) LIKE LOWER($1) AND is_available = TRUE",
-    [`%${searchTerm}%`]
+    "SELECT * FROM menu_items WHERE tenant_id = $1 AND LOWER(name) LIKE LOWER($2) AND is_available = TRUE",
+    [tenantId, `%${searchTerm}%`]
   );
   return result.rows;
 }
 
-export async function getMenuByCategory(category: string) {
+export async function getMenuByCategory(tenantId: string, category: string) {
   const result = await query(
-    "SELECT * FROM menu_items WHERE category = $1 AND is_available = TRUE",
-    [category]
+    "SELECT * FROM menu_items WHERE tenant_id = $1 AND category = $2 AND is_available = TRUE",
+    [tenantId, category]
   );
   return result.rows;
 }
 
-export async function getVegetarianItems() {
+export async function getVegetarianItems(tenantId: string) {
   const result = await query(
-    "SELECT * FROM menu_items WHERE is_vegetarian = TRUE AND is_available = TRUE"
+    "SELECT * FROM menu_items WHERE tenant_id = $1 AND is_vegetarian = TRUE AND is_available = TRUE",
+    [tenantId]
   );
   return result.rows;
 }
 
-export async function getVeganItems() {
+export async function getVeganItems(tenantId: string) {
   const result = await query(
-    "SELECT * FROM menu_items WHERE is_vegan = TRUE AND is_available = TRUE"
+    "SELECT * FROM menu_items WHERE tenant_id = $1 AND is_vegan = TRUE AND is_available = TRUE",
+    [tenantId]
   );
   return result.rows;
 }
+
+export async function createMenuItem(tenantId: string, data: {
+  name: string;
+  description: string;
+  category: string;
+  price: number;
+  ingredients: string[];
+  allergens: string[];
+  spice_level: number;
+  is_vegetarian: boolean;
+  is_vegan: boolean;
+  prep_time: number;
+  image_url?: string;
+}) {
+  const id = `${data.category.slice(0, 4)}-${Date.now()}`;
+  const result = await query(
+    `INSERT INTO menu_items (
+      id, tenant_id, name, description, category, price, ingredients, allergens,
+      spice_level, is_vegetarian, is_vegan, prep_time, image_url, is_available
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, TRUE)
+    RETURNING *`,
+    [
+      id,
+      tenantId,
+      data.name,
+      data.description,
+      data.category,
+      data.price,
+      JSON.stringify(data.ingredients),
+      JSON.stringify(data.allergens),
+      data.spice_level,
+      data.is_vegetarian,
+      data.is_vegan,
+      data.prep_time,
+      data.image_url,
+    ]
+  );
+  return result.rows[0];
+}
+
+export async function updateMenuItem(tenantId: string, itemId: string, updates: any) {
+  const setClause = [];
+  const values = [];
+  let paramIndex = 1;
+
+  const allowedFields = [
+    'name', 'description', 'category', 'price', 'ingredients', 'allergens',
+    'spice_level', 'is_vegetarian', 'is_vegan', 'prep_time', 'image_url', 'is_available'
+  ];
+
+  for (const field of allowedFields) {
+    if (updates[field] !== undefined) {
+      setClause.push(`${field} = $${paramIndex++}`);
+      // JSON fields need stringification
+      if (field === 'ingredients' || field === 'allergens') {
+        values.push(JSON.stringify(updates[field]));
+      } else {
+        values.push(updates[field]);
+      }
+    }
+  }
+
+  if (setClause.length === 0) {
+    throw new Error("No valid fields to update");
+  }
+
+  setClause.push(`updated_at = NOW()`);
+  values.push(tenantId);
+  values.push(itemId);
+
+  const result = await query(
+    `UPDATE menu_items SET ${setClause.join(", ")} 
+     WHERE tenant_id = $${paramIndex} AND id = $${paramIndex + 1} 
+     RETURNING *`,
+    values
+  );
+  return result.rows[0];
+}
+
+export async function deleteMenuItem(tenantId: string, itemId: string) {
+  await query(
+    "DELETE FROM menu_items WHERE tenant_id = $1 AND id = $2",
+    [tenantId, itemId]
+  );
+}
+
+export async function toggleMenuItemAvailability(tenantId: string, itemId: string) {
+  const result = await query(
+    `UPDATE menu_items 
+     SET is_available = NOT is_available, updated_at = NOW() 
+     WHERE tenant_id = $1 AND id = $2 
+     RETURNING *`,
+    [tenantId, itemId]
+  );
+  return result.rows[0];
+}
+
+// ============================================================================
+// MENU CATEGORIES
+// ============================================================================
+
+export async function getMenuCategories(tenantId: string) {
+  const result = await query(
+    "SELECT * FROM menu_categories WHERE tenant_id = $1 AND is_active = TRUE ORDER BY display_order, name",
+    [tenantId]
+  );
+  return result.rows;
+}
+
+export async function createMenuCategory(tenantId: string, name: string, displayOrder?: number) {
+  const id = `cat-${Date.now()}`;
+  const result = await query(
+    "INSERT INTO menu_categories (id, tenant_id, name, display_order) VALUES ($1, $2, $3, $4) RETURNING *",
+    [id, tenantId, name, displayOrder || 0]
+  );
+  return result.rows[0];
+}
+
 
 // ============================================================================
 // ORDERS
 // ============================================================================
 
-export async function createOrder(orderData: {
+export async function createOrder(tenantId: string, orderData: {
   tableId: string;
   items: any[];
   total: number;
@@ -65,11 +186,12 @@ export async function createOrder(orderData: {
 }) {
   const id = `ORD-${Date.now()}`;
   const result = await query(
-    `INSERT INTO orders (id, table_id, items, total, status, chef_order_id, eta)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO orders (id, tenant_id, table_id, items, total, status, chef_order_id, eta)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
     [
       id,
+      tenantId,
       orderData.tableId,
       JSON.stringify(orderData.items),
       orderData.total,
@@ -81,20 +203,20 @@ export async function createOrder(orderData: {
   return result.rows[0];
 }
 
-export async function getOrder(orderId: string) {
-  const result = await query("SELECT * FROM orders WHERE id = $1", [orderId]);
+export async function getOrder(tenantId: string, orderId: string) {
+  const result = await query("SELECT * FROM orders WHERE tenant_id = $1 AND id = $2", [tenantId, orderId]);
   return result.rows[0];
 }
 
-export async function getOrdersByTable(tableId: string) {
+export async function getOrdersByTable(tenantId: string, tableId: string) {
   const result = await query(
-    "SELECT * FROM orders WHERE table_id = $1 ORDER BY created_at DESC",
-    [tableId]
+    "SELECT * FROM orders WHERE tenant_id = $1 AND table_id = $2 ORDER BY created_at DESC",
+    [tenantId, tableId]
   );
   return result.rows;
 }
 
-export async function updateOrder(orderId: string, updates: any) {
+export async function updateOrder(tenantId: string, orderId: string, updates: any) {
   const setClause = [];
   const values = [];
   let paramIndex = 1;
@@ -121,10 +243,13 @@ export async function updateOrder(orderId: string, updates: any) {
   }
 
   setClause.push(`updated_at = NOW()`);
+  
+  // Add tenant_id check for security
+  values.push(tenantId);
   values.push(orderId);
 
   const result = await query(
-    `UPDATE orders SET ${setClause.join(", ")} WHERE id = $${paramIndex} RETURNING *`,
+    `UPDATE orders SET ${setClause.join(", ")} WHERE tenant_id = $${paramIndex} AND id = $${paramIndex + 1} RETURNING *`,
     values
   );
   return result.rows[0];
@@ -134,7 +259,7 @@ export async function updateOrder(orderId: string, updates: any) {
 // RESERVATIONS
 // ============================================================================
 
-export async function createReservation(data: {
+export async function createReservation(tenantId: string, data: {
   guestName: string;
   partySize: number;
   dateTime: Date;
@@ -144,11 +269,12 @@ export async function createReservation(data: {
 }) {
   const id = `RES-${Date.now()}`;
   const result = await query(
-    `INSERT INTO reservations (id, guest_name, party_size, date_time, table_id, contact_info, special_requests, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+    `INSERT INTO reservations (id, tenant_id, guest_name, party_size, date_time, table_id, contact_info, special_requests, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending')
      RETURNING *`,
     [
       id,
+      tenantId,
       data.guestName,
       data.partySize,
       data.dateTime,
@@ -160,12 +286,12 @@ export async function createReservation(data: {
   return result.rows[0];
 }
 
-export async function getReservation(resId: string) {
-  const result = await query("SELECT * FROM reservations WHERE id = $1", [resId]);
+export async function getReservation(tenantId: string, resId: string) {
+  const result = await query("SELECT * FROM reservations WHERE tenant_id = $1 AND id = $2", [tenantId, resId]);
   return result.rows[0];
 }
 
-export async function updateReservation(resId: string, updates: any) {
+export async function updateReservation(tenantId: string, resId: string, updates: any) {
   const setClause = [];
   const values = [];
   let paramIndex = 1;
@@ -180,10 +306,13 @@ export async function updateReservation(resId: string, updates: any) {
   }
 
   setClause.push(`updated_at = NOW()`);
+  
+  // Add tenant_id check
+  values.push(tenantId);
   values.push(resId);
 
   const result = await query(
-    `UPDATE reservations SET ${setClause.join(", ")} WHERE id = $${paramIndex} RETURNING *`,
+    `UPDATE reservations SET ${setClause.join(", ")} WHERE tenant_id = $${paramIndex} AND id = $${paramIndex + 1} RETURNING *`,
     values
   );
   return result.rows[0];
@@ -193,8 +322,8 @@ export async function updateReservation(resId: string, updates: any) {
 // TABLES
 // ============================================================================
 
-export async function getAllTables() {
-  const result = await query("SELECT * FROM tables ORDER BY id");
+export async function getAllTables(tenantId: string) {
+  const result = await query("SELECT * FROM tables WHERE tenant_id = $1 ORDER BY id", [tenantId]);
   return result.rows;
 }
 
@@ -203,17 +332,17 @@ export async function getTable(tableId: string) {
   return result.rows[0];
 }
 
-export async function updateTableStatus(tableId: string, status: string) {
+export async function updateTableStatus(tenantId: string, tableId: string, status: string) {
   await query(
-    "UPDATE tables SET status = $1, updated_at = NOW() WHERE id = $2",
-    [status, tableId]
+    "UPDATE tables SET status = $1, updated_at = NOW() WHERE tenant_id = $2 AND id = $3",
+    [status, tenantId, tableId]
   );
 }
 
-export async function getAvailableTables(minCapacity: number) {
+export async function getAvailableTables(tenantId: string, minCapacity: number) {
   const result = await query(
-    "SELECT * FROM tables WHERE status = 'available' AND capacity >= $1 ORDER BY capacity",
-    [minCapacity]
+    "SELECT * FROM tables WHERE tenant_id = $1 AND status = 'available' AND capacity >= $2 ORDER BY capacity",
+    [tenantId, minCapacity]
   );
   return result.rows;
 }
@@ -314,4 +443,23 @@ export async function logEvent(eventType: string, eventData: any, userId?: strin
     "INSERT INTO analytics (event_type, event_data, user_id, session_id) VALUES ($1, $2, $3, $4)",
     [eventType, JSON.stringify(eventData), userId, sessionId]
   );
+}
+
+// ============================================================================
+// SETTINGS
+// ============================================================================
+
+export async function getSetting(tenantId: string, key: string) {
+  const result = await query(
+    "SELECT value FROM settings WHERE tenant_id = $1 AND key = $2",
+    [tenantId, key]
+  );
+  return result.rows[0]?.value;
+}
+
+export async function getSystemPrompt(tenantId: string) {
+  const customPrompt = await getSetting(tenantId, "system_prompt");
+  if (customPrompt) return customPrompt;
+  
+  return null;
 }
