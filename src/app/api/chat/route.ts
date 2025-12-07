@@ -1,14 +1,28 @@
 import { streamText, tool, convertToModelMessages, UIMessage } from "ai";
 import { google } from "@ai-sdk/google";
+import { cerebras } from "@ai-sdk/cerebras";
 import { z } from "zod";
 import * as repo from "@/lib/repository/restaurant";
+import { NextRequest } from "next/server";
 
-// Allow streaming responses up to 30 seconds
-export const maxDuration = 30;
+// Allow streaming responses up to 60 seconds
+export const maxDuration = 60;
 
-export async function POST(req: Request) {
+// Configurable AI provider and model
+const getModel = () => {
+  const provider = process.env.AI_PROVIDER || "cerebras"; // cerebras or google
+  const modelName = process.env.AI_MODEL;
+  
+  if (provider === "cerebras") {
+    return cerebras(modelName || "llama3.1-8b");
+  } else {
+    return google(modelName || "gemini-2.0-flash-lite");
+  }
+};
+
+export async function POST(request: NextRequest) {
   try {
-    const { messages }: { messages: UIMessage[] } = await req.json();
+    const { messages }: { messages: UIMessage[] } = await request.json();
     
     // 1. Identify Tenant
     const tenantId = process.env.TENANT_ID;
@@ -19,80 +33,103 @@ export async function POST(req: Request) {
       return new Response("Server Configuration Error", { status: 500 });
     }
 
-    // 2. Fetch System Prompt for Tenant
-    const customPrompt = await repo.getSystemPrompt(tenantId);
+    // 2. Fetch Restaurant Configuration
+    const customPrompt = await repo.getSetting(tenantId, 'system_prompt');
     
-    const systemPrompt = customPrompt || `You are an expert AI waiter at "${tenantName}". 
-Your role is to provide exceptional customer service, handle all front-of-house operations, and ensure a delightful dining experience.
+    let systemPrompt: string;
+    
+    if (customPrompt) {
+      // Use custom prompt if set via Settings page
+      systemPrompt = customPrompt;
+    } else {
+      // Build dynamic prompt from configuration
+      const description = await repo.getSetting(tenantId, 'restaurant_description') || `A premium restaurant`;
+      const cuisineType = await repo.getSetting(tenantId, 'cuisine_type') || 'International';
+      const operatingHours = await repo.getSetting(tenantId, 'operating_hours') || '9:00 AM - 10:00 PM';
+      const tone = await repo.getSetting(tenantId, 'ai_tone') || 'warm and professional';
+      const specialInstructions = await repo.getSetting(tenantId, 'special_instructions') || '';
+      const features = await repo.getSetting(tenantId, 'restaurant_features') || 'Dine-in, Takeaway';
+      
+      systemPrompt = `You are an expert AI waiter at "${tenantName}".
+
+🏪 ABOUT ${tenantName.toUpperCase()}:
+${description}
+- Cuisine: ${cuisineType}
+- Hours: ${operatingHours}
+- Services: ${features}
 
 🎯 YOUR CORE RESPONSIBILITIES:
-1. **Guest Engagement**: Greet warmly as "${tenantName}" staff, answer questions, provide recommendations
+1. **Guest Engagement**: Greet warmly, answer questions, provide recommendations
 2. **Reservations**: Manage table bookings, check availability, handle modifications
-3. **Menu Knowledge**: Deep expertise in all dishes, ingredients, allergens, and pricing
-4. **Order Management**: Capture orders accurately, communicate with Chef Agent, track status
+3. **Menu Knowledge**: Deep expertise in all dishes, ingredients, allergens, and pricing  
+4. **Order Management**: Capture orders accurately, communicate with kitchen, track status
 5. **Payment Processing**: Generate bills, process payments, provide receipts
 
 💬 COMMUNICATION STYLE:
-- Be warm, professional, and attentive
+- Be ${tone}
 - Use natural, conversational language
-- Show enthusiasm about the cuisine
+- Show genuine enthusiasm about our ${cuisineType} cuisine
 - Be proactive in offering suggestions
 - Acknowledge guest preferences and dietary restrictions
 - Always confirm important details before proceeding
-- ALWAYS start by welcoming the guest to "${tenantName}"
 
+${specialInstructions ? `\n🌟 SPECIAL NOTES:\n${specialInstructions}\n` : ''}
 🍽️ MENU & ORDERING GUIDELINES:
-- Always use the queryMenu tool to provide accurate, up-to-date information
-- Never suggest items that are not available in the menu
+- ALWAYS use the queryMenu tool to provide accurate, up-to-date information
+- Never suggest items not available in the menu
 - Highlight vegetarian/vegan options when asked
 - Warn about allergens (dairy, gluten, nuts) when relevant
-- Suggest complementary items (e.g., naan with curry, lassi with spicy dishes)
+- Suggest complementary items
 - Explain spice levels: 0=mild, 1=medium, 2=spicy, 3=very spicy
 
 📅 RESERVATION PROTOCOL:
 - Always check availability before confirming
 - Confirm: guest name, party size, date/time, contact info
 - Provide table assignment when available
-- Handle special requests (dietary needs, celebrations, accessibility)
-- Offer alternative times if requested slot is unavailable
+- Handle special requests (dietary needs, celebrations)
 
 🔧 ORDER WORKFLOW:
-1. **CRITICAL**: Always use queryMenu FIRST to get item IDs before placing any order
-2. Confirm table (number) preference before placing orders else suggest a table
-3. Verify all items and quantities with the guest
-4. Use the 'id' field from queryMenu results as itemId in placeOrder
-5. Use placeOrder tool to send to Chef Agent
-6. Inform guest of the estimated time of arrival (ETA) from Chef
+1. **CRITICAL**: Always use queryMenu FIRST to get item IDs before placing orders
+2. Confirm table number or suggest one
+3. Verify all items and quantities with guest
+4. Use the 'id' field from queryMenu as itemId in placeOrder
+5. Inform guest of estimated preparation time
 
-📊 ORDER STATUS TRACKING:
-- Use requestOrderStatus to check on orders
-- Proactively update guests on preparation progress
+📊 ORDER STATUS:
+- Use requestOrderStatus to check orders
+- Update guests proactively on preparation
 - Statuses: PENDING → CONFIRMED → PREPARING → READY → SERVED
 
 💳 PAYMENT HANDLING:
-- Generate itemized bills with subtotal, GST (18%), and total
+- Generate itemized bills with subtotal, GST (18%), total
 - Accept: cash, credit, debit, UPI
-- Provide detailed receipt after payment
-- Thank guests and invite them back
+- Provide detailed receipt
+- Thank guests warmly
 
 🎨 RESPONSE FORMAT:
-- Use clear, structured responses
-- Format prices as: ₹150, ₹300, etc.
-- Use emojis sparingly for warmth (🍛 🥘 ☕)
-- Provide order summaries in bullet points
-- Make receipts easy to read
+- Clear, structured responses
+- Format prices as: ₹150, ₹300
+- Use emojis sparingly (🍛 🥘 ☕)
+- Bullet points for order summaries
 `;
+    }
 
     const result = streamText({
-      model: google("gemini-2.0-flash"),
+      model: getModel(),
       system: systemPrompt,
       messages: convertToModelMessages(messages),
+      experimental_telemetry: {
+        isEnabled: true,
+        functionId: 'chat-stream',
+      },
+      // Performance optimizations
+      temperature: 0.7, // Balanced creativity vs consistency
       tools: {
         queryMenu: tool({
-          description: "Search and retrieve menu items with prices, ingredients, and dietary information. Use this to answer questions about the menu, prices, ingredients, or dietary options. IMPORTANT: Always use this tool before placing orders to get the correct item IDs.",
+          description: "Search and retrieve menu items. Call with NO parameters to show the FULL MENU. Use filters only when customer specifically requests them (e.g., 'vegetarian items' or 'desserts'). IMPORTANT: Always use this tool before placing orders to get item IDs.",
           inputSchema: z.object({
-            search: z.string().optional().describe("Search term for menu items"),
-            category: z.enum(["appetizers", "mains", "breads", "beverages", "desserts"]).optional().describe("Filter by category"),
+            search: z.string().optional().describe("Search term for menu items (e.g., 'biryani', 'dosa')"),
+            category: z.string().optional().describe("Filter by category (get from menu_categories table)"),
             vegetarian: z.boolean().optional().describe("Filter for vegetarian items"),
             vegan: z.boolean().optional().describe("Filter for vegan items"),
           }),
@@ -108,22 +145,43 @@ Your role is to provide exceptional customer service, handle all front-of-house 
             } else if (vegan) {
               items = await repo.getVeganItems(tenantId);
             } else {
+              // NO FILTERS - Return ALL menu items (for "show me the menu")
               items = await repo.getAllMenuItems(tenantId);
             }
 
-            // FILTER: Apply additional filters if needed (e.g. searching within a category)
+            // FILTER: Apply additional filters if needed
             if (category && search) {
                items = items.filter((item: any) => item.category === category);
             }
 
-            // Return as formatted text
+            // Return as formatted text with prices
             if (!items || items.length === 0) {
-              return "No menu items found.";
+              return "No menu items found matching your criteria.";
             }
 
-            return items.map((item: any) => 
-              `${item.name} - ₹${item.price}\n${item.description}\nCategory: ${item.category}\nTags: ${item.is_vegetarian ? 'Veg' : ''} ${item.is_vegan ? 'Vegan' : ''}\nID: ${item.id}`
-            ).join('\n\n');
+            // Group by category for better presentation
+            const groupedByCategory: Record<string, any[]> = {};
+            items.forEach((item: any) => {
+              const cat = item.category || 'Other';
+              if (!groupedByCategory[cat]) {
+                groupedByCategory[cat] = [];
+              }
+              groupedByCategory[cat].push(item);
+            });
+
+            let formattedMenu = "";
+            Object.keys(groupedByCategory).forEach(category => {
+              formattedMenu += `\n**${category}:**\n`;
+              groupedByCategory[category].forEach((item: any) => {
+                const veg = item.is_vegetarian ? '🥬' : '🍖';
+                const price = `₹${item.price}`;
+                formattedMenu += `${veg} **${item.name}** - ${price}\n`;
+                formattedMenu += `   ${item.description}\n`;
+                formattedMenu += `   ID: ${item.id}\n\n`;
+              });
+            });
+
+            return formattedMenu;
           },
         }),
 
