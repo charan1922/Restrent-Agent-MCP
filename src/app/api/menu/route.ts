@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getMenuKB , } from "@/lib/restaurant/menu-kb";
+import {
+  getAllMenuItems,
+  searchMenuByName,
+  getMenuByCategory,
+  getVegetarianItems,
+  getVeganItems,
+} from "@/lib/repository/restaurant";
 
 /**
  * GET /api/menu
@@ -9,39 +15,37 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
     const category = searchParams.get("category");
-    const allergens = searchParams.get("allergens")?.split(",");
     const vegetarian = searchParams.get("vegetarian") === "true";
     const vegan = searchParams.get("vegan") === "true";
     const search = searchParams.get("search");
 
-    const menuKB = getMenuKB();
-    let items = menuKB.getAllItems();
+    let items;
 
     // Apply filters
-    if (category) {
-      items = menuKB.getItemsByCategory(category as any);
-    }
-
-    if (allergens && allergens.length > 0) {
-      items = menuKB.safeForAllergens(allergens);
-    }
-
-    if (vegetarian) {
-      items = items.filter((item) => item.isVegetarian);
-    }
-
-    if (vegan) {
-      items = items.filter((item) => item.isVegan);
-    }
-
     if (search) {
-      items = menuKB.searchByName(search);
+      items = await searchMenuByName(search);
+    } else if (category) {
+      items = await getMenuByCategory(category);
+    } else if (vegetarian) {
+      items = await getVegetarianItems();
+    } else if (vegan) {
+      items = await getVeganItems();
+    } else {
+      items = await getAllMenuItems();
     }
+
+    // Format items (convert decimal price to number)
+    const formattedItems = items.map((item: any) => ({
+      ...item,
+      price: parseFloat(item.price),
+      ingredients: item.ingredients || [],
+      allergens: item.allergens || [],
+    }));
 
     return NextResponse.json({
       success: true,
-      items,
-      count: items.length,
+      items: formattedItems,
+      count: formattedItems.length,
     });
   } catch (error) {
     console.error("Error fetching menu:", error);

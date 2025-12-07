@@ -1,13 +1,17 @@
-import { config } from "dotenv";
+import "dotenv/config";
 import { defineConfig } from "drizzle-kit";
 
-config({ path: ".env.local" });
-
 export default defineConfig({
-  schema: "./src/lib/db-schema.ts",
-  out: "./migrations",
+  schema: "./src/lib/db/schema.ts",
+  out: "./drizzle",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.NEON_DATABASE_URL!,
+    host: process.env.DB_HOST || "localhost",
+    port: parseInt(process.env.DB_PORT || "5432"),
+    database: process.env.DB_NAME || "demo",
+    user: process.env.DB_USER || "postgres",
+    password: process.env.DB_PASSWORD || "postgres",
   },
+  verbose: true,
+  strict: true,
 });

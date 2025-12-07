@@ -106,20 +106,14 @@ Remember: You represent the restaurant's hospitality. Every interaction should l
             const res = await fetch(`http://localhost:4000/api/menu?${params}`);
             const data = await res.json();
 
-            return {
-              items: data.items?.map((item: any) => ({
-                id: item.id, // ← CRITICAL: Item ID needed for orders
-                name: item.name,
-                price: `₹${item.price}`,
-                priceNumeric: item.price, // For calculations
-                description: item.description,
-                category: item.category,
-                isVegetarian: item.isVegetarian,
-                isVegan: item.isVegan,
-                allergens: item.allergens || [],
-                spiceLevel: item.spiceLevel,
-              })) || [],
-            };
+            // Return as formatted text to ensure model generates a response
+            if (!data.items || data.items.length === 0) {
+              return "No menu items found.";
+            }
+
+            return data.items.map((item: any) => 
+              `${item.name} - ₹${item.price}\n${item.description}\nID: ${item.id}`
+            ).join('\n\n');
           },
         }),
 
@@ -285,12 +279,7 @@ Remember: You represent the restaurant's hospitality. Every interaction should l
       },
     });
 
-    return result.toUIMessageStreamResponse({
-      headers: {
-      'Transfer-Encoding': 'chunked',
-      'Connection': 'keep-alive',
-    }
-    });
+    return result.toUIMessageStreamResponse();
   } catch (error) {
     console.error("Error in chat route:", error);
     return new Response(JSON.stringify({ error: "Internal Server Error" }), {
