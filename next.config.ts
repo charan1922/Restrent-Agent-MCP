@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["pdf-parse"],
+  /* config options here */
+  distDir: process.env.NEXT_PRIVATE_BUILD_DIR || ".next",
 };
 
 export default nextConfig;
