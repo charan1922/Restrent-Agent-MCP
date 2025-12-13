@@ -8,12 +8,12 @@ export const TENANTS: Tenant[] = [
   {
     id: "chutneys",
     name: "Chutney's Kitchen",
-    host: "chutneys.aiagent.local:4444",
+    host: "chutneys.waiter.local:4444",
   },
   {
     id: "pistahouse",
     name: "Pista House",
-    host: "pistahouse.aiagent.local:4444",
+    host: "pistahouse.waiter.local:4444",
   },
 ];
 

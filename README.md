@@ -10,6 +10,7 @@ A production-ready, multi-tenant restaurant ordering system powered by AI, built
 - **👥 Concurrent Users** - Handle unlimited simultaneous customers
 - **🔐 Secure Auth** - JWT-based authentication with tenant isolation
 - **⚙️ Configurable AI** - Easy-to-customize AI behavior per restaurant
+- **👨‍🍳 Chef Agent** - Separate kitchen service on port 5555 via A2A protocol
 - **⚡ Fast Performance** - Powered by Cerebras (llama3.1-8b)
 
 ---
@@ -26,11 +27,16 @@ A production-ready, multi-tenant restaurant ordering system powered by AI, built
 
 ### Multi-Tenant Setup
 ```
-Pista House (Port 4001)          Chutneys (Port 4002)
-├─ Red theme (#DC2626)          ├─ Green theme (#16A34A)
-├─ Hyderabadi cuisine           ├─ South Indian cuisine
-├─ Non-veg specialist           ├─ Pure vegetarian
-└─ Energetic tone               └─ Calm, friendly tone
+Waiter Agent (Port 4444)
+├─ pistahouse.waiter.local:4444  │  chutneys.waiter.local:4444
+├─ Red theme (#DC2626)           │  Green theme (#16A34A)
+├─ Hyderabadi cuisine            │  South Indian cuisine
+├─ Non-veg specialist            │  Pure vegetarian
+└─ Energetic tone                │  Calm, friendly tone
+
+Chef Agent (Port 5555)
+├─ pistahouse.chef.local:5555   │  chutneys.chef.local:5555
+└─ Kitchen Display System       │  Order management
 ```
 
 ---
@@ -103,13 +109,29 @@ cp env.chutneys.template .env.chutneys
 # - CEREBRAS_API_KEY
 # - GOOGLE_API_KEY (optional fallback)
 
-# Run both restaurants
-pnpm dev:both
+# Run waiter agent
+pnpm dev
+```
+
+### Set up hosts for multi-tenant
+Add to `/etc/hosts`:
+```
+127.0.0.1  pistahouse.waiter.local
+127.0.0.1  chutneys.waiter.local
+127.0.0.1  pistahouse.chef.local
+127.0.0.1  chutneys.chef.local
 ```
 
 ### Access Applications
-- **Pista House:** http://localhost:4001
-- **Chutneys:** http://localhost:4002
+**Waiter Agent (Port 4444):**
+- Default: http://localhost:4444
+- Pista House: http://pistahouse.waiter.local:4444
+- Chutneys: http://chutneys.waiter.local:4444
+
+**Chef Agent (Port 5555):**
+- Default: http://localhost:5555/kitchen
+- Pista House: http://pistahouse.chef.local:5555/kitchen
+- Chutneys: http://chutneys.chef.local:5555/kitchen
 
 ---
 
@@ -291,10 +313,13 @@ if (session.tenant_id !== process.env.TENANT_ID) {
 ### Multi-Tenant Testing
 ```bash
 # Test Pista House
-curl http://localhost:4001/api/menu
+curl http://pistahouse.waiter.local:4444/api/menu
 
 # Test Chutneys  
-curl http://localhost:4002/api/menu
+curl http://chutneys.waiter.local:4444/api/menu
+
+# Test Chef Agent
+curl http://localhost:5555/api/a2a
 
 # Verify isolation - should be different!
 ```

@@ -9,7 +9,8 @@ An intelligent AI-powered waiter agent for managing restaurant operations includ
 - **📅 Reservation System**: Book tables, check availability, manage reservations
 - **🛒 Order Management**: Place orders, track status, modify/cancel orders
 - **💳 Payment Processing**: Generate bills with GST calculation, process payments, issue receipts
-- **🤝 Chef Agent Integration**: A2A protocol communication with Chef Agent on port 5000
+- **🤝 Chef Agent Integration**: A2A protocol communication with Chef Agent on port 5555
+- **🏢 Multi-Tenant**: Supports multiple restaurants via subdomain routing
 
 ### AI-Powered Interactions
 - Natural language understanding for customer requests
@@ -27,19 +28,21 @@ An intelligent AI-powered waiter agent for managing restaurant operations includ
 └────────┬────────┘
          │
          ▼
-┌─────────────────┐
-│  Waiter Agent   │ ◄── Gemini 2.0 Flash
-│  (Port 4000)    │
-└────────┬────────┘
+┌─────────────────────────────────┐
+│  Waiter Agent (Port 4444)       │ ◄── Gemini 2.0 Flash
+│  pistahouse.waiter.local:4444   │
+│  chutneys.waiter.local:4444     │
+└────────┬────────────────────────┘
          │
          ├─── Menu KB
-         ├─── Database (In-Memory)
+         ├─── PostgreSQL Database
          │
-         ▼
-┌─────────────────┐
-│  Chef Agent     │ ◄── A2A Protocol
-│  (Port 5000)    │
-└─────────────────┘
+         ▼ (A2A Protocol)
+┌─────────────────────────────────┐
+│  Chef Agent (Port 5555)         │ ◄── Kitchen Display
+│  pistahouse.chef.local:5555     │
+│  chutneys.chef.local:5555       │
+└─────────────────────────────────┘
 ```
 
 ## 🚀 Getting Started
@@ -47,13 +50,14 @@ An intelligent AI-powered waiter agent for managing restaurant operations includ
 ### Prerequisites
 - Node.js 18+ and pnpm
 - Google AI API key
-- Chef Agent running on port 5000 (optional - will degrade gracefully)
+- PostgreSQL database
+- Chef Agent running on port 5555 (optional - will degrade gracefully)
 
 ### Installation
 
 1. **Clone and install dependencies**
    ```bash
-   cd /path/to/rag-ai
+   cd waiter-agent
    pnpm install
    ```
 
@@ -61,19 +65,40 @@ An intelligent AI-powered waiter agent for managing restaurant operations includ
    Create a `.env.local` file:
    ```env
    GOOGLE_GENERATIVE_AI_API_KEY=your_api_key_here
-   CHEF_AGENT_URL=http://localhost:4444
+   CHEF_AGENT_URL=http://localhost:5555
    CHEF_AGENT_TIMEOUT=30000
    CHEF_AGENT_RETRY_ATTEMPTS=3
+   
+   # Database
+   DB_HOST=localhost
+   DB_PORT=5432
+   DB_NAME=demo
+   DB_USER=postgres
+   DB_PASSWORD=postgres
+   
+   # Default Tenant
+   TENANT_ID=tenant-pista-house
+   TENANT_NAME=Pista House
    ```
 
-3. **Start the development server**
+3. **Set up hosts for multi-tenant testing** (optional)
+   Add to `/etc/hosts`:
+   ```
+   127.0.0.1  pistahouse.waiter.local
+   127.0.0.1  chutneys.waiter.local
+   ```
+
+4. **Start the development server**
    ```bash
    pnpm dev
    ```
-   The Waiter Agent will be available at `http://localhost:4000`
+   The Waiter Agent will be available at:
+   - `http://localhost:4444` (default)
+   - `http://pistahouse.waiter.local:4444` (Pista House tenant)
+   - `http://chutneys.waiter.local:4444` (Chutneys tenant)
 
-4. **Access the chat interface**
-   Navigate to `http://localhost:4000/agent`
+5. **Access the chat interface**
+   Navigate to `http://localhost:4444/agent`
 
 ### Testing Chef Agent Connection
 
@@ -161,10 +186,19 @@ The Waiter Agent communicates with the Chef Agent using the A2A (Agent-to-Agent)
 
 ### Chef Agent Requirements
 The Chef Agent must:
-- Run on `http://localhost:5000` (configurable via env)
+- Run on `http://localhost:5555` (configurable via `CHEF_AGENT_URL` env)
 - Expose agent card at `/.well-known/agent-card.json`
-- Accept A2A messages matching the schema in `src/lib/a2a/schema.ts`
+- Accept A2A messages at `/api/a2a`
+- Accept messages matching the schema in `src/lib/a2a/schema.ts`
 - Return responses with order status, ETA, and ingredient availability
+
+### Multi-Tenant Hosts
+| Agent | Tenant | URL |
+|-------|--------|-----|
+| Waiter | Pista House | `http://pistahouse.waiter.local:4444` |
+| Waiter | Chutneys | `http://chutneys.waiter.local:4444` |
+| Chef | Pista House | `http://pistahouse.chef.local:5555/kitchen` |
+| Chef | Chutneys | `http://chutneys.chef.local:5555/kitchen` |
 
 ## 📊 Database Schema
 
@@ -247,14 +281,15 @@ Professional receipt with:
 ## 🔍 Troubleshooting
 
 ### Chef Agent Connection Issues
-- Verify Chef Agent is running: `curl http://localhost:5000/.well-known/agent-card.json`
+- Verify Chef Agent is running: `curl http://localhost:5555/.well-known/agent-card.json`
+- Check A2A endpoint: `curl http://localhost:5555/api/a2a`
 - Check logs for connection errors
 - Run test script: `npx tsx src/lib/a2a/test-chef-connection.ts`
 - Waiter Agent will continue operating with degraded functionality if Chef is offline
 
 ### Menu Not Loading
 - Check `src/lib/restaurant/menu-kb.ts` for menu data
-- Verify API endpoint: `curl http://localhost:4000/api/menu`
+- Verify API endpoint: `curl http://localhost:4444/api/menu`
 
 ### Orders Not Saving
 - Database is in-memory - resets on server restart

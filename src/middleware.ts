@@ -10,8 +10,8 @@ export function middleware(request: NextRequest) {
   
   // Extract subdomain from host
   // Examples:
-  // - pistahouse.aiagent.local:4444 -> pistahouse
-  // - chutneys.aiagent.local:4444 -> chutneys
+  // - pistahouse.waiter.local:4444 -> pistahouse
+  // - chutneys.waiter.local:4444 -> chutneys
   // - localhost:4444 -> fallback to pista-house
   
   let tenantId = 'tenant-pista-house'; // Default fallback
