@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { useSidebar } from "./SidebarContext";
+import { useTheme } from "@/contexts/ThemeContext";
 
 const getNavigationItems = (role: string | null) => {
     const base = [
@@ -51,6 +52,7 @@ export function Sidebar() {
     const pathname = usePathname();
     const { collapsed, setCollapsed } = useSidebar();
     const { role } = useAdminAuth();
+    const { theme } = useTheme();
     const navigationItems = getNavigationItems(role);
 
     return (
@@ -75,8 +77,11 @@ export function Sidebar() {
                 <div className="h-16 flex items-center justify-between px-4 border-b">
                     {!collapsed && (
                         <div className="flex items-center gap-2">
-                            <UtensilsCrossed className="w-6 h-6 text-[var(--color-primary)]" />
-                            <span className="font-semibold text-lg">Restaurant</span>
+                            <UtensilsCrossed
+                                className="w-6 h-6"
+                                style={{ color: theme.primaryColor }}
+                            />
+                            <span className="font-semibold text-lg">{theme.tenantName}</span>
                         </div>
                     )}
                     <button

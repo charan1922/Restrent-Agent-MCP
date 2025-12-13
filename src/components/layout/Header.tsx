@@ -3,23 +3,28 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { LogOut, User } from "lucide-react";
+import { useTheme } from "@/contexts/ThemeContext";
 
 export function Header() {
     const { user, logout } = useAuth();
     const router = useRouter();
+    const { theme } = useTheme();
 
     const handleLogout = async () => {
         await logout();
         router.push("/login");
     };
 
-    // Get tenant name from environment or default
-    const tenantName = process.env.NEXT_PUBLIC_TENANT_NAME || "Restaurant";
+    // Use tenant name from theme context
+    const tenantName = theme.tenantName;
 
     return (
         <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-6">
             <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-[var(--color-primary)] rounded-lg flex items-center justify-center text-white font-bold">
+                <div
+                    className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold"
+                    style={{ backgroundColor: theme.primaryColor }}
+                >
                     {tenantName.charAt(0)}
                 </div>
                 <div>
