@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validateSession } from "@/lib/repository/auth";
 import { getCurrentTenantCookieName } from "@/lib/utils/auth-cookies";
+import { getTenantId } from "@/lib/utils/tenant";
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,7 +24,7 @@ export async function GET(request: NextRequest) {
     }
 
     // CRITICAL: Check tenant isolation
-    const currentTenantId = process.env.TENANT_ID;
+    const currentTenantId = getTenantId(request);
     if (currentTenantId && user.tenant_id !== currentTenantId) {
       return NextResponse.json(
         { success: false, error: "Session belongs to different tenant" },

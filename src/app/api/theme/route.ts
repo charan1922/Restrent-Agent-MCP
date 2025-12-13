@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as repo from "@/lib/repository/restaurant";
+import { getTenantId, getTenantName } from "@/lib/utils/tenant";
 
 export async function GET(request: NextRequest) {
   try {
-    const tenantId = process.env.TENANT_ID;
-    const tenantName = process.env.TENANT_NAME || "Restaurant";
+    const tenantId = getTenantId(request);
+    const tenantName = getTenantName(request);
     
     if (!tenantId) {
       return NextResponse.json({ success: false, error: "Tenant ID missing" }, { status: 500 });

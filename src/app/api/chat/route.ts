@@ -4,6 +4,7 @@ import { cerebras } from "@ai-sdk/cerebras";
 import { z } from "zod";
 import * as repo from "@/lib/repository/restaurant";
 import { NextRequest } from "next/server";
+import { getTenantId, getTenantName } from "@/lib/utils/tenant";
 
 // Allow streaming responses up to 60 seconds
 export const maxDuration = 60;
@@ -24,9 +25,9 @@ export async function POST(request: NextRequest) {
   try {
     const { messages }: { messages: UIMessage[] } = await request.json();
     
-    // 1. Identify Tenant
-    const tenantId = process.env.TENANT_ID;
-    const tenantName = process.env.TENANT_NAME || "Restaurant";
+    // 1. Identify Tenant (using centralized utility)
+    const tenantId = getTenantId(request);
+    const tenantName = getTenantName(request);
     
     if (!tenantId) {
       console.error("TENANT_ID is missing in environment variables");

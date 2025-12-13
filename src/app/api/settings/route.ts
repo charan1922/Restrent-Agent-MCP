@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db/postgres";
+import { getTenantId } from "@/lib/utils/tenant";
 
 export async function GET(request: NextRequest) {
   try {
-    const tenantId = process.env.TENANT_ID;
+    const tenantId = getTenantId(request);
     if (!tenantId) {
       return NextResponse.json({ success: false, error: "Tenant ID missing" }, { status: 500 });
     }
@@ -27,7 +28,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const tenantId = process.env.TENANT_ID;
+    const tenantId = request.headers.get('x-tenant-id') || process.env.TENANT_ID;
     if (!tenantId) {
       return NextResponse.json({ success: false, error: "Tenant ID missing" }, { status: 500 });
     }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { registerUser } from "@/lib/repository/auth";
 import { getCurrentTenantCookieName } from "@/lib/utils/auth-cookies";
+import { getTenantId } from "@/lib/utils/tenant";
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,8 +22,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get tenant ID from environment
-    const tenantId = process.env.TENANT_ID;
+    // Get tenant ID from headers (set by middleware) or environment
+    const tenantId = getTenantId(request);
     if (!tenantId) {
       return NextResponse.json(
         { success: false, error: "Tenant configuration error" },
