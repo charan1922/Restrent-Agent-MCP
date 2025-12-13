@@ -1,6 +1,3 @@
-import { A2AClient } from "@a2a-js/sdk/client";
-import type { Message, MessageSendParams } from "@a2a-js/sdk";
-import { v4 as uuidv4 } from "uuid";
 import {
   type Order,
   type OrderStatusResponse,
@@ -28,11 +25,10 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
 
 /**
  * Chef Agent A2A Client
- * Handles all communication with the Chef Agent using the A2A protocol
- * with retry logic, timeout handling, and graceful degradation
+ * Handles all communication with the external Chef Agent using the A2A protocol
+ * Chef Agent runs on port 5555 as a standalone service
  */
 export class ChefAgentClient {
-  private client: A2AClient | null = null;
   private chefAgentUrl: string;
   private initialized: boolean = false;
   private retryConfig: RetryConfig;
@@ -40,10 +36,11 @@ export class ChefAgentClient {
   private isHealthy: boolean = false;
 
   constructor(chefAgentUrl?: string, retryConfig?: Partial<RetryConfig>) {
+    // Chef Agent now runs as external service on port 5555
     this.chefAgentUrl =
       chefAgentUrl ||
       process.env.CHEF_AGENT_URL ||
-      "http://localhost:5000"; // Default chef agent URL
+      "http://localhost:5555";
     
     this.retryConfig = {
       ...DEFAULT_RETRY_CONFIG,
@@ -119,66 +116,40 @@ export class ChefAgentClient {
   }
 
   /**
-   * Send a message to the Chef Agent and get a response with retry logic
+   * Send a message to the Chef Agent (Direct HTTP Mode for Internal Server)
    */
   private async sendMessage(
     request: ChefAgentRequest
   ): Promise<ChefAgentResponse> {
-    if (!this.client) {
-      await this.initialize();
-    }
-
-    if (!this.client) {
-      throw new Error("Chef Agent client not initialized");
-    }
-
-    const message: Message = {
-      messageId: uuidv4(),
-      role: "user",
-      kind: "message",
-      parts: [
-        {
-          kind: "text",
-          text: JSON.stringify(request),
-        },
-      ],
-    };
-
-    const sendParams: MessageSendParams = {
-      message,
-    };
+    // Use external Chef Agent on port 5555
+    const targetUrl = `${this.chefAgentUrl}/api/a2a`;
 
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < this.retryConfig.maxAttempts; attempt++) {
       try {
-        // Create timeout promise
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Request timeout")),
-            this.retryConfig.timeoutMs
-          )
-        );
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.retryConfig.timeoutMs);
 
-        // Race between request and timeout
-        const response = await Promise.race([
-          this.client.sendMessage(sendParams),
-          timeoutPromise,
-        ]);
+        const response = await fetch(targetUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-tenant-id": process.env.TENANT_ID || "tenant-pista-house",
+          },
+          body: JSON.stringify(request),
+          signal: controller.signal,
+        });
 
-        if ("error" in response) {
-          throw new Error(response.error.message);
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+           const errorText = await response.text();
+           throw new Error(`Chef Agent returned ${response.status}: ${errorText}`);
         }
 
-        const result = response.result as Message;
-        const textPart = result.parts.find((p) => p.kind === "text");
-
-        if (!textPart || textPart.kind !== "text") {
-          throw new Error("Invalid response from Chef Agent");
-        }
-
-        const parsedResponse = JSON.parse(textPart.text);
-        const validatedResponse = ChefAgentResponseSchema.parse(parsedResponse);
+        const data = await response.json();
+        const validatedResponse = ChefAgentResponseSchema.parse(data);
         
         this.isHealthy = true;
         this.lastHealthCheck = Date.now();
@@ -187,13 +158,12 @@ export class ChefAgentClient {
       } catch (error) {
         lastError = error as Error;
         console.error(
-          `Error communicating with Chef Agent (attempt ${attempt + 1}/${this.retryConfig.maxAttempts}):`,
+          `Error communicating with Chef Agent at ${targetUrl} (attempt ${attempt + 1}/${this.retryConfig.maxAttempts}):`,
           error
         );
 
         if (attempt < this.retryConfig.maxAttempts - 1) {
           const delay = this.getBackoffDelay(attempt);
-          console.log(`⏳ Retrying in ${delay}ms...`);
           await this.sleep(delay);
         }
       }
@@ -202,6 +172,14 @@ export class ChefAgentClient {
     this.isHealthy = false;
     throw lastError || new Error("Failed to communicate with Chef Agent");
   }
+
+  // A2A Protocol methods removed/suspended in favor of direct internal link for reliability
+  async initialize(): Promise<void> {
+      // No-op for direct mode
+      this.initialized = true;
+      return Promise.resolve();
+  }
+
 
   /**
    * Place an order with the Chef Agent

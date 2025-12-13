@@ -5,6 +5,8 @@ import { z } from "zod";
 import * as repo from "@/lib/repository/restaurant";
 import { NextRequest } from "next/server";
 import { getTenantId, getTenantName } from "@/lib/utils/tenant";
+import { getChefAgentClient } from "@/lib/a2a/chef-client";
+import { v4 as uuidv4 } from "uuid";
 
 // Allow streaming responses up to 60 seconds
 export const maxDuration = 60;
@@ -23,7 +25,17 @@ const getModel = () => {
 
 export async function POST(request: NextRequest) {
   try {
-    const { messages }: { messages: UIMessage[] } = await request.json();
+    const body = await request.json();
+    const { messages }: { messages: UIMessage[] } = body;
+    
+    // Validate messages
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      console.error("Invalid messages:", messages);
+      return new Response(JSON.stringify({ error: "Messages are required" }), { 
+        status: 400,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
     
     // 1. Identify Tenant (using centralized utility)
     const tenantId = getTenantId(request);
@@ -234,66 +246,123 @@ ${specialInstructions ? `\n🌟 SPECIAL NOTES:\n${specialInstructions}\n` : ''}
         }),
 
         placeOrder: tool({
-          description: "Place a new order. MUST use valid item IDs from queryMenu.",
+          description: "Place order with Chef via A2A. Get itemId from queryMenu first!",
           inputSchema: z.object({
-            tableId: z.string().describe("Table ID"),
+            tableId: z.string().describe("Table ID (T1-T7)"),
             items: z.array(z.object({
               itemId: z.string(),
+              itemName: z.string(),
               quantity: z.number(),
-              modifications: z.array(z.string()).optional(),
-              specialInstructions: z.string().optional(),
+              modifications: z.array(z.string()).optional().nullable(),
+              specialInstructions: z.string().optional().nullable(),
             })),
           }),
           execute: async ({ tableId, items }) => {
-            // Validate items exist and calculate total
-            let total = 0;
-            const validItems = [];
-            
-            for (const item of items) {
-              const menuItem = await repo.getMenuItemById(tenantId, item.itemId);
-              if (menuItem) {
-                total += menuItem.price * item.quantity;
-                validItems.push({
-                  ...item,
-                  name: menuItem.name,
-                  price: menuItem.price
-                });
+            try {
+              let total = 0;
+              const validItems = [];
+              
+              for (const item of items) {
+                const menuItem = await repo.getMenuItemById(tenantId, item.itemId);
+                if (menuItem) {
+                  total += menuItem.price * item.quantity;
+                  validItems.push({
+                    itemId: item.itemId,
+                    itemName: item.itemName || menuItem.name,
+                    quantity: item.quantity,
+                    modifications: item.modifications || [],
+                    specialInstructions: item.specialInstructions || undefined,
+                  });
+                }
               }
-            }
-            
-            if (validItems.length === 0) {
-              return { success: false, error: "No valid items found in order" };
-            }
+              
+              if (validItems.length === 0) {
+                return { success: false, error: "No valid items" };
+              }
 
-            const order = await repo.createOrder(tenantId, {
-              tableId,
-              items: validItems,
-              total,
-              status: "pending",
-              eta: 15 // Default ETA
-            });
+              const orderId = uuidv4();
+              const chefClient = getChefAgentClient();
+              const chefResponse = await chefClient.placeOrder({
+                orderId,
+                tableId,
+                items: validItems,
+                timestamp: new Date().toISOString(),
+                priority: "normal",
+              });
 
-            // Send to Chef Agent (Mock or actual implementation)
-            // Here we just return success
-            
-            return {
-              success: true,
-              order,
-              message: "Order placed successfully. Sent to kitchen.",
-              eta: 15
-            };
+              if (!chefResponse || chefResponse.status === "CANCELLED") {
+                // Chef rejected (e.g., missing ingredients)
+                return {
+                  success: false,
+                  error: chefResponse.message || "Chef cannot fulfill order",
+                  missingIngredients: chefResponse.missingIngredients,
+                };
+              }
+
+              // Save order to Waiter's database
+              const order = await repo.createOrder(tenantId, {
+                tableId,
+                items: validItems.map(item => ({
+                  ...item,
+                  name: item.itemName,
+                  price: 0, // We'll just use itemId for now
+                })),
+                total,
+                status: "sent_to_chef",
+                eta: chefResponse.eta,
+              });
+
+              // Update order with chef_order_id for tracking
+              await repo.updateOrder(tenantId, order.id, {
+                chef_order_id: orderId,
+                status: chefResponse.status.toLowerCase(),
+              });
+
+              return {
+                success: true,
+                orderId: order.id,
+                chefOrderId: orderId,
+                status: chefResponse.status,
+                eta: chefResponse.eta,
+                message: `Order confirmed! ${chefResponse.message}`,
+                tableId,
+                items: validItems,
+                total,
+              };
+            } catch (error) {
+              console.error("[placeOrder] Error:", error);
+              return {
+                success: false,
+                error: error instanceof Error ? error.message : "Failed to place order with Chef",
+              };
+            }
           },
         }),
 
         requestOrderStatus: tool({
-          description: "Check order status.",
+          description: "Check the status of an order with the Chef Agent via A2A. Returns current status and ETA.",
           inputSchema: z.object({
-            orderId: z.string(),
+            orderId: z.string().describe("The chef order ID returned from placeOrder"),
           }),
           execute: async ({ orderId }) => {
-            const order = await repo.getOrder(tenantId, orderId);
-            if (!order) return { success: false, error: "Order not found" };
-            return { success: true, order };
+            try {
+              const chefClient = getChefAgentClient();
+              const statusResponse = await chefClient.requestOrderStatus(orderId);
+
+              return {
+                success: true,
+                orderId: statusResponse.orderId,
+                status: statusResponse.status,
+                eta: statusResponse.eta,
+                message: statusResponse.message,
+              };
+            } catch (error) {
+              console.error("[requestOrderStatus] Error:", error);
+              return {
+                success: false,
+                error: error instanceof Error ? error.message : "Failed to get order status",
+              };
+            }
           },
         }),
       },

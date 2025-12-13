@@ -11,34 +11,47 @@ import {
     ChevronLeft,
     Menu as MenuIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useAdminAuth } from "@/contexts/AdminAuthContext";
+import { useSidebar } from "./SidebarContext";
 
-const navigationItems = [
-    {
-        label: "Chat",
-        href: "/agent",
-        icon: MessageSquare,
-    },
-    {
-        label: "Dashboard",
-        href: "/admin",
-        icon: LayoutDashboard,
-    },
-    {
-        label: "Menu",
-        href: "/admin/menu",
-        icon: UtensilsCrossed,
-    },
-    {
-        label: "Settings",
-        href: "/admin/settings",
-        icon: Settings,
-    },
-];
+const getNavigationItems = (role: string | null) => {
+    const base = [
+        {
+            label: "Chat",
+            href: "/agent",
+            icon: MessageSquare,
+        },
+        {
+            label: "Dashboard",
+            href: "/admin",
+            icon: LayoutDashboard,
+        },
+        {
+            label: "Menu",
+            href: "/admin/menu",
+            icon: UtensilsCrossed,
+        },
+        {
+            label: "Settings",
+            href: "/admin/settings",
+            icon: Settings,
+        },
+    ];
+    if (role === "admin") {
+        base.push({
+            label: "Super‑Admin",
+            href: "/admin",
+            icon: Settings,
+        });
+    }
+    return base;
+};
 
 export function Sidebar() {
     const pathname = usePathname();
-    const [collapsed, setCollapsed] = useState(false);
+    const { collapsed, setCollapsed } = useSidebar();
+    const { role } = useAdminAuth();
+    const navigationItems = getNavigationItems(role);
 
     return (
         <>
@@ -116,10 +129,10 @@ export function Sidebar() {
             </aside>
 
             {/* Mobile sidebar */}
-            {collapsed && (
+            {!collapsed && (
                 <div
                     className="lg:hidden fixed inset-0 bg-black/50 z-30"
-                    onClick={() => setCollapsed(false)}
+                    onClick={() => setCollapsed(true)}
                 />
             )}
             <aside

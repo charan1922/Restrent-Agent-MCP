@@ -61,7 +61,7 @@ An intelligent AI-powered waiter agent for managing restaurant operations includ
    Create a `.env.local` file:
    ```env
    GOOGLE_GENERATIVE_AI_API_KEY=your_api_key_here
-   CHEF_AGENT_URL=http://localhost:5000
+   CHEF_AGENT_URL=http://localhost:4444
    CHEF_AGENT_TIMEOUT=30000
    CHEF_AGENT_RETRY_ATTEMPTS=3
    ```

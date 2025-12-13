@@ -29,11 +29,23 @@ import {
 } from "@/components/ai-elements/prompt-input";
 
 import { Loader } from "@/components/ai-elements/loader";
-
 import { GlobeIcon } from "lucide-react";
+
+import { useAuth } from "@/contexts/AuthContext";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 const RAGChatbot = () => {
   const textareaRef = useRef(null);
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push("/login");
+    }
+  }, [user, loading, router]);
 
   const [input, setInput] = useState("");
   const { messages, sendMessage, status } = useChat();
@@ -43,6 +55,23 @@ const RAGChatbot = () => {
     await sendMessage({ text: message.text });
     setInput(""); // Clear input after sending
   };
+
+  // Show loading state while checking auth
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If not authenticated, return null (redirect will happen)
+  if (!user) {
+    return null;
+  }
 
   return (
     <div className="max-w-4xl mx-auto p-6 relative size-full h-[calc(100vh)]">
@@ -71,17 +100,15 @@ const RAGChatbot = () => {
                             <Message from={message.role}>
                               <MessageContent>
                                 <MessageResponse>
-                                  {`🔍 Searching knowledge base for: ${
-                                    JSON.parse(part.input as string).query
-                                  }`}
+                                  {`🔍 Searching knowledge base for: ${JSON.parse(part.input as string).query
+                                    }`}
                                 </MessageResponse>
                                 {typeof part.output === "string" && (
                                   <MessageResponse>
-                                    {`Found relevant information:\n${
-                                      typeof part.output === "string"
-                                        ? part.output
-                                        : String(part.output)
-                                    }`}
+                                    {`Found relevant information:\n${typeof part.output === "string"
+                                      ? part.output
+                                      : String(part.output)
+                                      }`}
                                   </MessageResponse>
                                 )}
                               </MessageContent>
