@@ -48,7 +48,7 @@ const ConversationDemo = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-6 relative size-full rounded-lg border h-[600px]">
+    <div className="max-w-4xl mx-auto p-6 relative size-full rounded-lg border h-full">
       <div className="flex flex-col h-full">
         <Conversation>
           <ConversationContent>
@@ -88,6 +88,14 @@ const ConversationDemo = () => {
                   </MessageContent>
                 </Message>
               ))
+            )}
+            {(status === 'submitted' || (status === 'streaming' && (messages[messages.length - 1] as any)?.role === 'assistant' && !(messages[messages.length - 1] as any)?.content)) && (
+              <div className="flex items-center gap-2 text-muted-foreground ml-2 mt-2">
+                <div className="size-2 bg-current rounded-full animate-bounce [animation-delay:-0.3s]" />
+                <div className="size-2 bg-current rounded-full animate-bounce [animation-delay:-0.15s]" />
+                <div className="size-2 bg-current rounded-full animate-bounce" />
+                <span className="text-sm">Thinking...</span>
+              </div>
             )}
           </ConversationContent>
           <ConversationScrollButton />

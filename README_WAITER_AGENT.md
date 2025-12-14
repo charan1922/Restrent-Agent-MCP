@@ -47,6 +47,8 @@ An intelligent AI-powered waiter agent for managing restaurant operations includ
 
 ## 🚀 Getting Started
 
+ For deployment instructions, see [DEPLOYMENT.md](./DEPLOYMENT.md).
+
 ### Prerequisites
 - Node.js 18+ and pnpm
 - Google AI API key

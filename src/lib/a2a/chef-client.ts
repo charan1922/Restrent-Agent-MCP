@@ -64,65 +64,45 @@ export class ChefAgentClient {
   }
 
   /**
-   * Initialize the A2A client by fetching the Chef Agent's card
+   * Initialize the client verify connection
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
-    let lastError: Error | null = null;
-
-    for (let attempt = 0; attempt < this.retryConfig.maxAttempts; attempt++) {
-      try {
-        const cardUrl = `${this.chefAgentUrl}/.well-known/agent-card.json`;
-        
-        // Create timeout promise
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("Connection timeout")),
-            this.retryConfig.timeoutMs
-          )
-        );
-
-        // Race between connection and timeout
-        this.client = await Promise.race([
-          A2AClient.fromCardUrl(cardUrl),
-          timeoutPromise,
-        ]);
-
+    try {
+      console.log(`Connecting to Chef Agent at ${this.chefAgentUrl}...`);
+      // Simple health check to verify connection
+      const isHealthy = await this.healthCheck();
+      
+      if (isHealthy) {
         this.initialized = true;
-        this.isHealthy = true;
-        this.lastHealthCheck = Date.now();
-        console.log(`✅ Connected to Chef Agent via A2A protocol at ${this.chefAgentUrl}`);
-        return;
-      } catch (error) {
-        lastError = error as Error;
-        console.warn(
-          `⚠️ Failed to connect to Chef Agent (attempt ${attempt + 1}/${this.retryConfig.maxAttempts}):`,
-          error
-        );
-
-        if (attempt < this.retryConfig.maxAttempts - 1) {
-          const delay = this.getBackoffDelay(attempt);
-          console.log(`⏳ Retrying in ${delay}ms...`);
-          await this.sleep(delay);
-        }
+        console.log(`✅ Connected to Chef Agent at ${this.chefAgentUrl}`);
+      } else {
+        throw new Error("Health check failed");
       }
+    } catch (error) {
+      console.warn(`⚠️ Failed to connect to Chef Agent: ${(error as Error).message}`);
+      // We don't throw here to allow partial startup, but functionality will be degraded
     }
-
-    this.isHealthy = false;
-    throw new Error(
-      `Could not connect to Chef Agent at ${this.chefAgentUrl} after ${this.retryConfig.maxAttempts} attempts: ${lastError?.message}`
-    );
   }
 
   /**
-   * Send a message to the Chef Agent (Direct HTTP Mode for Internal Server)
+   * Send a message to the Chef Agent (Direct HTTP Mode with JSON-RPC 2.0)
    */
   private async sendMessage(
-    request: ChefAgentRequest
-  ): Promise<ChefAgentResponse> {
-    // Use external Chef Agent on port 5555
+    method: string,
+    params: any,
+    tenantId: string
+  ): Promise<any> {
     const targetUrl = `${this.chefAgentUrl}/api/a2a`;
+    const requestId = crypto.randomUUID();
+
+    const request = {
+      jsonrpc: "2.0",
+      method,
+      params,
+      id: requestId,
+    };
 
     let lastError: Error | null = null;
 
@@ -131,11 +111,12 @@ export class ChefAgentClient {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), this.retryConfig.timeoutMs);
 
+        console.log(`[DEBUG ChefClient] Sending ${method} with tenantId: ${tenantId}`);
         const response = await fetch(targetUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-tenant-id": process.env.TENANT_ID || "tenant-pista-house",
+            "x-tenant-id": tenantId,
           },
           body: JSON.stringify(request),
           signal: controller.signal,
@@ -151,14 +132,19 @@ export class ChefAgentClient {
         const data = await response.json();
         const validatedResponse = ChefAgentResponseSchema.parse(data);
         
+        // JSON-RPC Error Handling
+        if (validatedResponse.error) {
+          throw new Error(`Chef Agent Error (${validatedResponse.error.code}): ${validatedResponse.error.message}`);
+        }
+
         this.isHealthy = true;
         this.lastHealthCheck = Date.now();
         
-        return validatedResponse;
+        return validatedResponse.result;
       } catch (error) {
         lastError = error as Error;
         console.error(
-          `Error communicating with Chef Agent at ${targetUrl} (attempt ${attempt + 1}/${this.retryConfig.maxAttempts}):`,
+          `Error communicating with Chef Agent at ${targetUrl} (method: ${method}, attempt ${attempt + 1}/${this.retryConfig.maxAttempts}):`,
           error
         );
 
@@ -173,64 +159,28 @@ export class ChefAgentClient {
     throw lastError || new Error("Failed to communicate with Chef Agent");
   }
 
-  // A2A Protocol methods removed/suspended in favor of direct internal link for reliability
-  async initialize(): Promise<void> {
-      // No-op for direct mode
-      this.initialized = true;
-      return Promise.resolve();
-  }
-
 
   /**
    * Place an order with the Chef Agent
    */
-  async placeOrder(order: Order): Promise<OrderStatusResponse> {
-    const request: ChefAgentRequest = {
-      type: "PLACE_ORDER",
-      payload: order,
-    };
-
-    const response = await this.sendMessage(request);
-
-    if (!response.success || !response.data) {
-      throw new Error(response.error || "Failed to place order with Chef");
-    }
-
-    return response.data as OrderStatusResponse;
+  async placeOrder(order: Order, tenantId: string): Promise<OrderStatusResponse> {
+    const result = await this.sendMessage("placeOrder", order, tenantId);
+    return result as OrderStatusResponse;
   }
 
   /**
    * Request the status of an order from the Chef Agent
    */
-  async requestOrderStatus(orderId: string): Promise<OrderStatusResponse> {
-    const request: ChefAgentRequest = {
-      type: "REQUEST_STATUS",
-      payload: { orderId },
-    };
-
-    const response = await this.sendMessage(request);
-
-    if (!response.success || !response.data) {
-      throw new Error(response.error || "Failed to get order status");
-    }
-
-    return response.data as OrderStatusResponse;
+  async requestOrderStatus(orderId: string, tenantId: string): Promise<OrderStatusResponse> {
+    const result = await this.sendMessage("getOrderStatus", { orderId }, tenantId);
+    return result as OrderStatusResponse;
   }
 
   /**
    * Cancel an order
    */
-  async cancelOrder(orderId: string): Promise<void> {
-    const request: ChefAgentRequest = {
-      type: "CANCEL_ORDER",
-      payload: { orderId },
-    };
-
-    const response = await this.sendMessage(request);
-
-    if (!response.success) {
-      throw new Error(response.error || "Failed to cancel order");
-    }
+  async cancelOrder(orderId: string, tenantId: string): Promise<void> {
+    await this.sendMessage("cancelOrder", { orderId }, tenantId);
   }
 
   /**
@@ -277,7 +227,7 @@ export class ChefAgentClient {
    * Reset the client connection (useful for reconnection scenarios)
    */
   async reset(): Promise<void> {
-    this.client = null;
+    // this.client = null; // Removed as A2AClient is no longer used
     this.initialized = false;
     this.isHealthy = false;
     this.lastHealthCheck = 0;
